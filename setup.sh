@@ -23,7 +23,7 @@ echo ""
 echo "[1/5] 시스템 패키지 업데이트 및 설치..."
 sudo apt update
 sudo apt install -y python3-pip python3-dbus bluez bluetooth libdbus-1-dev \
-                   python3-gpiozero python3-lgpio libdbus-glib-1-dev
+                   python3-gpiozero python3-lgpio libdbus-glib-1-dev rfkill qrencode
 
 echo "✓ 시스템 패키지 설치 완료"
 
@@ -93,6 +93,7 @@ echo "✓ Python 가상환경 및 bless 설치 완료"
 echo ""
 echo "[4/5] BlueZ 서비스 시작..."
 
+sudo rfkill unblock bluetooth || true
 sudo systemctl restart bluetooth
 sleep 2
 
@@ -100,8 +101,11 @@ sleep 2
 if command -v hciconfig &> /dev/null; then
   BLE_DEVICE=$(hciconfig | grep hci | head -1 | awk '{print $1}')
   if [ -n "$BLE_DEVICE" ]; then
-    sudo hciconfig $BLE_DEVICE up || true
-    echo "  → $BLE_DEVICE 활성화"
+    if sudo hciconfig "$BLE_DEVICE" up; then
+      echo "  → $BLE_DEVICE 활성화"
+    else
+      echo "  ⚠ $BLE_DEVICE 활성화 실패 (RF-kill 가능성). 계속 진행합니다."
+    fi
   fi
 fi
 
@@ -111,32 +115,30 @@ echo "✓ BlueZ 준비 완료"
 echo ""
 echo "[5/5] systemd 서비스 등록..."
 
-# rasplab.service 파일 확인 및 복사
-if [ ! -f "/opt/rasplab/rasplab.service" ]; then
-  echo "  ⚠ rasplab.service 파일이 없습니다. 수동으로 생성해주세요."
-  cat > /tmp/rasplab.service << 'EOF'
+# rasplab.service를 매번 정합한 내용으로 강제 갱신
+cat > /tmp/rasplab.service << 'EOF'
 [Unit]
 Description=RaspLab BLE Daemon
-After=bluetooth.target
+After=bluetooth.target network.target
 Wants=bluetooth.target
 
 [Service]
 Type=simple
 User=root
 WorkingDirectory=/opt/rasplab
+ExecStartPre=/bin/sleep 2
 ExecStart=/opt/rasplab/venv/bin/python3 /opt/rasplab/raspi_ble_daemon.py
 Restart=on-failure
-RestartSec=10
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+Environment=PYTHONUNBUFFERED=1
 
 [Install]
 WantedBy=multi-user.target
 EOF
-  sudo cp /tmp/rasplab.service /etc/systemd/system/
-  echo "  → 서비스 파일 생성 완료 (/tmp/rasplab.service 참고)"
-else
-  sudo cp /opt/rasplab/rasplab.service /etc/systemd/system/
-  echo "  → 서비스 파일 복사 완료"
-fi
+sudo cp /tmp/rasplab.service /etc/systemd/system/rasplab.service
+echo "  → 서비스 파일 갱신 완료"
 
 sudo systemctl daemon-reload
 sudo systemctl enable rasplab
@@ -149,6 +151,20 @@ if sudo systemctl is-active --quiet rasplab; then
 else
   echo "⚠ 서비스 시작 실패. 로그 확인:"
   echo "   sudo journalctl -u rasplab -n 20"
+fi
+
+# 설치 완료 후 터미널 QR 자동 출력
+if [ -f "/sys/class/bluetooth/hci0/address" ]; then
+  BLE_MAC=$(cat /sys/class/bluetooth/hci0/address)
+  QR_DATA="rasplab://${BLE_MAC}"
+  echo ""
+  echo "[QR] 연결 데이터: ${QR_DATA}"
+  if command -v qrencode &> /dev/null; then
+    echo "[QR] 아래 코드를 앱에서 스캔하세요:"
+    qrencode -t ANSIUTF8 -s 1 "${QR_DATA}" || true
+  else
+    echo "[QR] qrencode 미설치로 텍스트만 출력합니다."
+  fi
 fi
 
 # ─── 완료 ────────────────────────────────────────────────────────────────
