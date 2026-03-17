@@ -4,7 +4,15 @@
 # 용법: sudo bash setup.sh
 # 또는: sudo bash -c "curl -sSL https://raw.githubusercontent.com/username/rasplab/main/pi/setup.sh | bash"
 
-set -e  # 오류 발생 시 즉시 종료
+set -euo pipefail  # 오류 발생 시 즉시 종료
+
+REPO_RAW_BASE="${REPO_RAW_BASE:-https://raw.githubusercontent.com/chungddong/rpictestsc/main}"
+REQUIRED_FILES=(
+  "raspi_ble_daemon.py"
+  "rasplab.service"
+  "generate_qr.py"
+  "requirements.txt"
+)
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "🚀 RaspLab 라즈베리파이 자동 설치"
@@ -19,27 +27,51 @@ sudo apt install -y python3-pip python3-dbus bluez bluetooth libdbus-1-dev \
 
 echo "✓ 시스템 패키지 설치 완료"
 
-# ─── 2단계: 파일 복사 (git clone 또는 직접 경로) ────────────────────────────
+# ─── 2단계: 필수 파일 준비 ────────────────────────────────────────────
 echo ""
-echo "[2/5] 파일 복사..."
+echo "[2/5] 필수 파일 준비..."
 
-if [ ! -d "/opt/rasplab" ]; then
-  echo "  → 저장소에서 복사 중..."
-  if command -v git &> /dev/null; then
-    # Git으로 복제
-    cd /tmp
-    git clone https://github.com/username/rasplab.git rasplab-temp
-    sudo mkdir -p /opt/rasplab
-    sudo cp -r rasplab-temp/pi/* /opt/rasplab/
-    rm -rf rasplab-temp
-  else
-    # 또는 현재 디렉토리에서 복사 (로컬 설치 시)
-    sudo mkdir -p /opt/rasplab
-    sudo cp ./* /opt/rasplab/
+sudo mkdir -p /opt/rasplab
+
+copy_local_files() {
+  local copied=0
+  for file in "${REQUIRED_FILES[@]}"; do
+    if [ -f "./${file}" ]; then
+      sudo cp "./${file}" "/opt/rasplab/${file}"
+      copied=$((copied + 1))
+    fi
+  done
+  if [ "$copied" -gt 0 ]; then
+    echo "  → 로컬 파일 ${copied}개 복사 완료"
+    return 0
   fi
-  echo "  → 파일 복사 완료"
+  return 1
+}
+
+download_required_files() {
+  echo "  → GitHub raw에서 파일 다운로드 중..."
+  for file in "${REQUIRED_FILES[@]}"; do
+    if curl -fsSL "${REPO_RAW_BASE}/${file}" -o "/tmp/${file}"; then
+      sudo cp "/tmp/${file}" "/opt/rasplab/${file}"
+      continue
+    fi
+
+    if curl -fsSL "${REPO_RAW_BASE}/pi/${file}" -o "/tmp/${file}"; then
+      sudo cp "/tmp/${file}" "/opt/rasplab/${file}"
+      continue
+    fi
+
+    echo "  ✗ ${file} 다운로드 실패"
+    echo "    REPO_RAW_BASE=${REPO_RAW_BASE}"
+    exit 1
+  done
+  echo "  → GitHub raw 다운로드 완료"
+}
+
+if copy_local_files; then
+  :
 else
-  echo "  → /opt/rasplab 이미 존재 (스킵)"
+  download_required_files
 fi
 
 # ─── 3단계: Python 가상환경 생성 및 bless 설치 ────────────────────────
