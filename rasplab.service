@@ -1,0 +1,19 @@
+[Unit]
+Description=RaspLab BLE Daemon
+After=bluetooth.target network.target
+Wants=bluetooth.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/rasplab
+ExecStart=/usr/bin/python3 /opt/rasplab/raspi_ble_daemon.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+# BLE 광고에 root 권한 필요
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

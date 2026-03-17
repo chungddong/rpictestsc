@@ -1,0 +1,18 @@
+# RaspLab Pi 의존 라이브러리
+
+# BLE Peripheral (Linux/BlueZ 기반)
+bless>=0.2.1
+
+# QR 코드 생성
+qrcode[pil]>=8.0
+pillow>=11.0
+
+# GPIO (라즈베리파이 환경에서만 설치)
+# RPi.GPIO>=0.7.1
+# gpiozero>=2.0
+
+# I2C 센서 (필요 시)
+# smbus2>=0.4.3
+
+# SPI (필요 시)
+# spidev>=3.6
