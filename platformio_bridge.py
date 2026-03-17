@@ -59,6 +59,49 @@ class PlatformIOBridge:
             self.env.update(env_vars)
         
         os.makedirs(projects_dir, exist_ok=True)
+
+    def _normalize_board_id(self, board_type: str) -> str:
+        """device_manager board_type 값을 PlatformIO board ID로 변환"""
+        if not board_type:
+            return "uno"
+
+        value = board_type.strip().lower()
+
+        # arduino:avr:uno -> uno
+        if ":" in value:
+            parts = [p for p in value.split(":") if p]
+            if parts:
+                return parts[-1]
+
+        return value
+
+    def _ensure_project_structure(self, project_dir: str, board_id: str) -> bool:
+        """프로젝트 필수 파일/디렉토리 보정"""
+        try:
+            os.makedirs(project_dir, exist_ok=True)
+
+            src_dir = os.path.join(project_dir, "src")
+            os.makedirs(src_dir, exist_ok=True)
+
+            ini_path = os.path.join(project_dir, "platformio.ini")
+            if not os.path.exists(ini_path):
+                with open(ini_path, "w", encoding="utf-8") as f:
+                    f.write(
+                        "[env:%s]\n"
+                        "platform = atmelavr\n"
+                        "board = %s\n"
+                        "framework = arduino\n" % (board_id, board_id)
+                    )
+
+            main_cpp_path = os.path.join(src_dir, "main.cpp")
+            if not os.path.exists(main_cpp_path):
+                with open(main_cpp_path, 'w', encoding='utf-8') as f:
+                    f.write(self._get_default_skeleton(board_id))
+
+            return True
+        except Exception as e:
+            logger.error(f"프로젝트 구조 보정 실패: {e}")
+            return False
     
     def register_board(self, device_id: str, board_type: str) -> bool:
         """
@@ -72,10 +115,14 @@ class PlatformIOBridge:
             성공 여부
         """
         project_dir = os.path.join(self.projects_dir, device_id)
+        board_id = self._normalize_board_id(board_type)
         
         if os.path.exists(project_dir):
-            logger.info(f"프로젝트 이미 존재: {device_id}")
-            return True
+            if self._ensure_project_structure(project_dir, board_id):
+                logger.info(f"프로젝트 이미 존재: {device_id}")
+                return True
+            logger.warning(f"기존 프로젝트 보정 실패, 재생성 시도: {device_id}")
+            shutil.rmtree(project_dir, ignore_errors=True)
         
         try:
             os.makedirs(project_dir, exist_ok=True)
@@ -83,7 +130,7 @@ class PlatformIOBridge:
             # PlatformIO 프로젝트 초기화
             cmd = [
                 self.pio_bin, "project", "init",
-                "--board", board_type,
+                "--board", board_id,
                 "-d", project_dir
             ]
             
@@ -103,8 +150,8 @@ class PlatformIOBridge:
             os.makedirs(src_dir, exist_ok=True)
             
             main_cpp_path = os.path.join(src_dir, "main.cpp")
-            with open(main_cpp_path, 'w') as f:
-                f.write(self._get_default_skeleton(board_type))
+            with open(main_cpp_path, 'w', encoding='utf-8') as f:
+                f.write(self._get_default_skeleton(board_id))
             
             logger.info(f"프로젝트 생성 완료: {device_id}")
             return True
@@ -228,8 +275,9 @@ void loop() {
     def _update_source_code(self, project_dir: str, code_content: str) -> bool:
         """main.cpp 업데이트"""
         try:
+            os.makedirs(os.path.join(project_dir, "src"), exist_ok=True)
             main_cpp_path = os.path.join(project_dir, "src", "main.cpp")
-            with open(main_cpp_path, 'w') as f:
+            with open(main_cpp_path, 'w', encoding='utf-8') as f:
                 f.write(code_content)
             return True
         except Exception as e:
