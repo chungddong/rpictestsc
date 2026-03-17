@@ -331,54 +331,47 @@ def on_write(characteristic: BlessGATTCharacteristic, value: bytearray, **kwargs
             log.info(f'Pi 코드 수신 완료 ({len(code)}자), 실행 시작')
             asyncio.create_task(execute_code(_server, code))
 
-    # ────────────────────────────────────────────────────────────
-    # 0x10-0x1F: 외부 장치 제어
-    # ────────────────────────────────────────────────────────────
-    
-    elif ptype == PKT_DEVICE_LIST:
-        # 0x10: 장치 목록 요청
-        if not _device_manager:
-            asyncio.create_task(notify_error(_server, "Device Manager 초기화 안됨"))
-            return
-        
-        device_list = _device_manager.get_device_list()
-        json_data = json.dumps(device_list, ensure_ascii=False).encode('utf-8')
-        log.info(f'장치 목록 전송: {len(device_list)}개')
-        asyncio.create_task(notify_result(_server, json_data))
-    
-    elif ptype == PKT_SELECT_DEVICE:
-        # 0x11: 디바이스 선택
-        device_id = payload.decode('utf-8').strip()
-        _selected_device = device_id
-        device = _device_manager.get_device(device_id) if device_id != 'pi' else None
-        if device_id == 'pi':
-            device_name = "RaspLab Board (Pi)"
-        else:
-            device_name = device.name if device else f"Unknown ({device_id})"
-        
-        log.info(f'디바이스 선택: {device_name}')
-        asyncio.create_task(notify_result(_server, f"선택됨: {device_name}".encode('utf-8')))
-    
-    elif ptype == PKT_ARDUINO_UPLOAD:
-        # 0x12: Arduino 코드 업로드
-        _arduino_code_chunks[seq] = payload
-        _arduino_code_total = total
-        log.debug(f'Arduino 코드 청크 {seq}/{total} 수신 ({len(payload)}B)')
-        
-        if seq == total:  # 마지막 청크 수신
-            try:
-                code_bytes = b''.join(
-                    _arduino_code_chunks[i] for i in sorted(_arduino_code_chunks.keys())
-                )
-                arduino_code = code_bytes.decode('utf-8')
-                _arduino_code_chunks.clear()
-                _arduino_code_total = 0
-                
-                log.info(f'Arduino 코드 수신 완료 ({len(arduino_code)}자)')
-                asyncio.create_task(compile_and_upload_arduino(_server, arduino_code))
-            except Exception as e:
-                log.error(f'Arduino 코드 처리 오류: {e}')
-                asyncio.create_task(notify_error(_server, f'Arduino 코드 처리 오류: {e}'))
+        elif ptype == PKT_DEVICE_LIST:
+            if not _device_manager:
+                asyncio.create_task(notify_error(_server, "Device Manager 초기화 안됨"))
+                return
+
+            device_list = _device_manager.get_device_list()
+            json_data = json.dumps(device_list, ensure_ascii=False).encode('utf-8')
+            log.info(f'장치 목록 전송: {len(device_list)}개')
+            asyncio.create_task(notify_result(_server, json_data))
+
+        elif ptype == PKT_SELECT_DEVICE:
+            device_id = payload.decode('utf-8').strip()
+            _selected_device = device_id
+            device = _device_manager.get_device(device_id) if device_id != 'pi' else None
+            if device_id == 'pi':
+                device_name = "RaspLab Board (Pi)"
+            else:
+                device_name = device.name if device else f"Unknown ({device_id})"
+
+            log.info(f'디바이스 선택: {device_name}')
+            asyncio.create_task(notify_result(_server, f"선택됨: {device_name}".encode('utf-8')))
+
+        elif ptype == PKT_ARDUINO_UPLOAD:
+            _arduino_code_chunks[seq] = payload
+            _arduino_code_total = total
+            log.debug(f'Arduino 코드 청크 {seq}/{total} 수신 ({len(payload)}B)')
+
+            if seq == total:
+                try:
+                    code_bytes = b''.join(
+                        _arduino_code_chunks[i] for i in sorted(_arduino_code_chunks.keys())
+                    )
+                    arduino_code = code_bytes.decode('utf-8')
+                    _arduino_code_chunks.clear()
+                    _arduino_code_total = 0
+
+                    log.info(f'Arduino 코드 수신 완료 ({len(arduino_code)}자)')
+                    asyncio.create_task(compile_and_upload_arduino(_server, arduino_code))
+                except Exception as e:
+                    log.error(f'Arduino 코드 처리 오류: {e}')
+                    asyncio.create_task(notify_error(_server, f'Arduino 코드 처리 오류: {e}'))
 
     # ────────────────────────────────────────────────────────────
     # CONTROL (fff3): 중지 명령
