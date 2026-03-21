@@ -196,21 +196,92 @@ fi
 echo ""
 echo "[7/8] USB RNDIS 가젯 네트워킹 설정..."
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-RNDIS_SCRIPT="$SCRIPT_DIR/rndis/setup_rndis.sh"
-if [ -f "$RNDIS_SCRIPT" ]; then
-  bash "$RNDIS_SCRIPT"
-  echo "✓ RNDIS 설정 완료"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd 2>/dev/null || echo "")"
+
+# RNDIS 설정: 로컬 파일 우선, 없으면 GitHub에서 다운로드
+_run_rndis_local() {
+  local script="$SCRIPT_DIR/rndis/setup_rndis.sh"
+  [ -n "$SCRIPT_DIR" ] && [ -f "$script" ] && bash "$script" && return 0
+  return 1
+}
+
+_run_rndis_remote() {
+  echo "  → GitHub에서 RNDIS 설정 다운로드 중..."
+  # config.txt에 dwc2 추가
+  local CONFIG_FILE="/boot/firmware/config.txt"
+  [ ! -f "$CONFIG_FILE" ] && CONFIG_FILE="/boot/config.txt"
+  if ! grep -q "^dtoverlay=dwc2" "$CONFIG_FILE" 2>/dev/null; then
+    echo "dtoverlay=dwc2" | sudo tee -a "$CONFIG_FILE" > /dev/null
+    echo "  -> dtoverlay=dwc2 추가 완료"
+  fi
+  # 커널 모듈 등록
+  for mod in dwc2 g_ether; do
+    if ! grep -q "^${mod}$" /etc/modules 2>/dev/null; then
+      echo "$mod" | sudo tee -a /etc/modules > /dev/null
+    fi
+  done
+  # usb0 고정 IP 설정
+  cat > /tmp/usb0.network << 'NETEOF'
+[Match]
+Name=usb0
+
+[Network]
+Address=192.168.7.2/24
+Gateway=192.168.7.1
+NETEOF
+  sudo cp /tmp/usb0.network /etc/systemd/network/usb0.network
+  sudo systemctl enable systemd-networkd
+  # dhcpcd에서 usb0 제외
+  if [ -f /etc/dhcpcd.conf ] && ! grep -q "^denyinterfaces usb0" /etc/dhcpcd.conf 2>/dev/null; then
+    echo "denyinterfaces usb0" | sudo tee -a /etc/dhcpcd.conf > /dev/null
+  fi
+}
+
+if _run_rndis_local; then
+  echo "✓ RNDIS 설정 완료 (로컬)"
 else
-  echo "⚠ RNDIS 설정 스크립트 없음 (건너뜀): $RNDIS_SCRIPT"
+  _run_rndis_remote
+  echo "✓ RNDIS 설정 완료 (인라인)"
 fi
 
 # ─── 8단계: Device Info HTTP 서버 등록 ─────────────────────────────────
 echo ""
 echo "[8/8] Device Info HTTP 서버 등록..."
 
-sudo cp "$SCRIPT_DIR/device_info_server.py" /opt/rasplab/device_info_server.py
-sudo cp "$SCRIPT_DIR/rasplab-device-info.service" /etc/systemd/system/rasplab-device-info.service
+# device_info_server.py: 로컬 우선, 없으면 GitHub에서 다운로드
+if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/device_info_server.py" ]; then
+  sudo cp "$SCRIPT_DIR/device_info_server.py" /opt/rasplab/device_info_server.py
+else
+  echo "  → GitHub에서 device_info_server.py 다운로드 중..."
+  curl -fsSL "${REPO_RAW_BASE}/device_info_server.py" -o /tmp/device_info_server.py
+  sudo cp /tmp/device_info_server.py /opt/rasplab/device_info_server.py
+fi
+
+# rasplab-device-info.service: 로컬 우선, 없으면 인라인 생성
+if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/rasplab-device-info.service" ]; then
+  sudo cp "$SCRIPT_DIR/rasplab-device-info.service" /etc/systemd/system/rasplab-device-info.service
+else
+  cat > /tmp/rasplab-device-info.service << 'SVCEOF'
+[Unit]
+Description=RaspLab Device Info HTTP API
+After=network.target bluetooth.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/python3 /opt/rasplab/device_info_server.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+SVCEOF
+  sudo cp /tmp/rasplab-device-info.service /etc/systemd/system/rasplab-device-info.service
+fi
+
 sudo systemctl daemon-reload
 sudo systemctl enable rasplab-device-info
 sudo systemctl start rasplab-device-info
