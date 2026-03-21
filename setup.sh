@@ -192,6 +192,37 @@ if [ -f "/sys/class/bluetooth/hci0/address" ]; then
   fi
 fi
 
+# ─── 7단계: USB RNDIS 가젯 네트워킹 설정 ──────────────────────────────
+echo ""
+echo "[7/8] USB RNDIS 가젯 네트워킹 설정..."
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+RNDIS_SCRIPT="$SCRIPT_DIR/rndis/setup_rndis.sh"
+if [ -f "$RNDIS_SCRIPT" ]; then
+  bash "$RNDIS_SCRIPT"
+  echo "✓ RNDIS 설정 완료"
+else
+  echo "⚠ RNDIS 설정 스크립트 없음 (건너뜀): $RNDIS_SCRIPT"
+fi
+
+# ─── 8단계: Device Info HTTP 서버 등록 ─────────────────────────────────
+echo ""
+echo "[8/8] Device Info HTTP 서버 등록..."
+
+sudo cp "$SCRIPT_DIR/device_info_server.py" /opt/rasplab/device_info_server.py
+sudo cp "$SCRIPT_DIR/rasplab-device-info.service" /etc/systemd/system/rasplab-device-info.service
+sudo systemctl daemon-reload
+sudo systemctl enable rasplab-device-info
+sudo systemctl start rasplab-device-info
+
+sleep 1
+if sudo systemctl is-active --quiet rasplab-device-info; then
+  echo "✓ Device Info 서버 시작 완료 (port 5000)"
+else
+  echo "⚠ Device Info 서버 시작 실패. 로그 확인:"
+  echo "   sudo journalctl -u rasplab-device-info -n 20"
+fi
+
 # ─── 완료 ────────────────────────────────────────────────────────────────
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

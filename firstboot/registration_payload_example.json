@@ -1,0 +1,9 @@
+{
+  "serial": "00000000abcdef01",
+  "model": "rpi-zero-2w",
+  "production_date": "2026-03-21T12:00:00Z",
+  "git_ref": "main",
+  "build_version": "ttlak-os-0.1.0",
+  "qa_result": "pass",
+  "notes": "prototype-001"
+}

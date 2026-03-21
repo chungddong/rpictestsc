@@ -1,0 +1,16 @@
+[Unit]
+Description=TTLAK first boot provisioning
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=!/var/lib/ttlak/success.flag
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/local/bin/ttlak-firstboot.sh
+StandardOutput=journal
+StandardError=journal
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

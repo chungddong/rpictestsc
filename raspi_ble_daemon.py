@@ -280,7 +280,14 @@ async def compile_and_upload_arduino(server: BlessServer, arduino_code: str):
             output_msg = f"✓ 업로드 완료!\n\n{result['upload'].output}"
             log.info("Arduino 코드 업로드 성공")
         else:
-            error_info = result['upload'].error if result['upload'] else "Unknown error"
+            error_info = (
+                result.get('error')
+                or (result.get('compile').error if result.get('compile') else None)
+                or (result.get('upload').error if result.get('upload') else None)
+                or (result.get('compile').output if result.get('compile') else None)
+                or (result.get('upload').output if result.get('upload') else None)
+                or "Unknown error"
+            )
             output_msg = f"✗ 업로드 실패\n\n{error_info}"
             log.error(f"Arduino 코드 업로드 실패: {error_info}")
         

@@ -1,0 +1,16 @@
+[Unit]
+Description=RaspLab Device Info HTTP API
+After=network.target bluetooth.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/python3 /opt/rasplab/device_info_server.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

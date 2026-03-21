@@ -9,6 +9,7 @@ import json
 import logging
 import subprocess
 import tempfile
+import re
 from typing import Dict, Optional, Callable
 from pathlib import Path
 from dataclasses import dataclass
@@ -235,7 +236,7 @@ void loop() {
         project_dir = os.path.join(self.projects_dir, device_id)
         
         # 2단계: main.cpp 업데이트
-        if not self._update_source_code(project_dir, code_content):
+        if not self._update_source_code(project_dir, code_content, board_type):
             return {
                 'success': False,
                 'error': '코드 업데이트 실패',
@@ -272,13 +273,34 @@ void loop() {
         
         return result
     
-    def _update_source_code(self, project_dir: str, code_content: str) -> bool:
+    def _normalize_arduino_code(self, code_content: str, board_type: str) -> str:
+        """컴파일 실패를 줄이기 위한 Arduino 코드 최소 보정"""
+        code = code_content.replace("\r\n", "\n").strip()
+
+        # 마크다운 코드펜스가 섞여 들어온 경우 제거
+        if "```" in code:
+            code = re.sub(r"^```\w*\n", "", code)
+            code = re.sub(r"\n```$", "", code)
+
+        # setup/loop 기반 Arduino 스케치면 include 보장
+        if ("void setup(" in code or "void loop(" in code) and "#include <Arduino.h>" not in code:
+            code = "#include <Arduino.h>\n\n" + code
+
+        # LED_PIN 사용 시 미정의 방지
+        led_pin_declared = re.search(r"(#define\s+LED_PIN\b|const\s+int\s+LED_PIN\b)", code) is not None
+        if "LED_PIN" in code and not led_pin_declared:
+            code = "const int LED_PIN = LED_BUILTIN;\n" + code
+
+        return code + "\n"
+
+    def _update_source_code(self, project_dir: str, code_content: str, board_type: str) -> bool:
         """main.cpp 업데이트"""
         try:
             os.makedirs(os.path.join(project_dir, "src"), exist_ok=True)
             main_cpp_path = os.path.join(project_dir, "src", "main.cpp")
+            normalized = self._normalize_arduino_code(code_content, board_type)
             with open(main_cpp_path, 'w', encoding='utf-8') as f:
-                f.write(code_content)
+                f.write(normalized)
             return True
         except Exception as e:
             logger.error(f"소스 코드 업데이트 실패: {e}")
